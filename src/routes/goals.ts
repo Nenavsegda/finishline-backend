@@ -151,17 +151,26 @@ export async function goalsRoutes(app: FastifyInstance) {
     today.setHours(0, 0, 0, 0)
 
     let totalDaily = 0
+    let totalWeekly = 0
+    let totalMonthly = 0
+
     for (const goal of rows) {
       const targetDate = new Date(goal.target_date)
       targetDate.setHours(0, 0, 0, 0)
       const daysLeft = Math.max(1, Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
-      totalDaily += Number(goal.target_amount) / daysLeft
+      const amount = Number(goal.target_amount)
+      const daily = amount / daysLeft
+
+      // Cap weekly/monthly at target_amount: if goal ends before the period, you only need target_amount total
+      totalDaily += daily
+      totalWeekly += Math.min(amount, daily * 7)
+      totalMonthly += Math.min(amount, daily * 30)
     }
 
     return {
-      daily:   Math.ceil(totalDaily * 100) / 100,
-      weekly:  Math.ceil(totalDaily * 7  * 100) / 100,
-      monthly: Math.ceil(totalDaily * 30 * 100) / 100,
+      daily: Math.ceil(totalDaily * 100) / 100,
+      weekly: Math.ceil(totalWeekly * 100) / 100,
+      monthly: Math.ceil(totalMonthly * 100) / 100,
     }
   })
 }
