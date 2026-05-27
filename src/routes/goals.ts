@@ -13,6 +13,8 @@ function getUser(request: any) {
   }
 }
 
+const GOAL_LIMIT = 20
+
 export async function goalsRoutes(app: FastifyInstance) {
   app.get('/goals', async (request, reply) => {
     const user = getUser(request)
@@ -34,8 +36,17 @@ export async function goalsRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: 'title, target_amount and target_date are required' })
       }
 
-      const id = uuidv4()
+      // Limit: count non-expired, non-completed goals
       const pool = getPool()
+      const [countRows] = await pool.query<any[]>(
+        'SELECT COUNT(*) AS cnt FROM goals WHERE user_id = ? AND is_completed = 0 AND target_date >= CURDATE()',
+        [user.userId]
+      )
+      if (countRows[0].cnt >= GOAL_LIMIT) {
+        return reply.status(400).send({ error: 'Goal limit reached', limit: GOAL_LIMIT })
+      }
+
+      const id = uuidv4()
       await pool.query(
         'INSERT INTO goals (id, user_id, title, target_amount, target_date) VALUES (?, ?, ?, ?, ?)',
         [id, user.userId, title, target_amount, target_date]
@@ -90,6 +101,26 @@ export async function goalsRoutes(app: FastifyInstance) {
     return { ...rows[0], is_active: newStatus }
   })
 
+  app.patch<{ Params: { id: string } }>('/goals/:id/complete', async (request, reply) => {
+    const user = getUser(request)
+    if (!user) return reply.status(401).send({ error: 'Unauthorized' })
+
+    const pool = getPool()
+    const [rows] = await pool.query<any[]>('SELECT * FROM goals WHERE id = ? AND user_id = ?', [
+      request.params.id,
+      user.userId,
+    ])
+    if (rows.length === 0) return reply.status(404).send({ error: 'Not found' })
+
+    await pool.query(
+      'UPDATE goals SET is_completed = 1, is_active = 0, updated_at = NOW() WHERE id = ?',
+      [request.params.id]
+    )
+
+    const [updated] = await pool.query<any[]>('SELECT * FROM goals WHERE id = ?', [request.params.id])
+    return updated[0]
+  })
+
   app.delete<{ Params: { id: string } }>('/goals/:id', async (request, reply) => {
     const user = getUser(request)
     if (!user) return reply.status(401).send({ error: 'Unauthorized' })
@@ -110,8 +141,9 @@ export async function goalsRoutes(app: FastifyInstance) {
     if (!user) return reply.status(401).send({ error: 'Unauthorized' })
 
     const pool = getPool()
+    // Exclude: completed goals, expired goals (target_date < today), inactive goals
     const [rows] = await pool.query<any[]>(
-      'SELECT target_amount, target_date FROM goals WHERE user_id = ? AND is_active = 1',
+      'SELECT target_amount, target_date FROM goals WHERE user_id = ? AND is_active = 1 AND is_completed = 0 AND target_date >= CURDATE()',
       [user.userId]
     )
 
@@ -127,8 +159,8 @@ export async function goalsRoutes(app: FastifyInstance) {
     }
 
     return {
-      daily: Math.ceil(totalDaily * 100) / 100,
-      weekly: Math.ceil(totalDaily * 7 * 100) / 100,
+      daily:   Math.ceil(totalDaily * 100) / 100,
+      weekly:  Math.ceil(totalDaily * 7  * 100) / 100,
       monthly: Math.ceil(totalDaily * 30 * 100) / 100,
     }
   })
