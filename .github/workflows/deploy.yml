@@ -24,6 +24,7 @@ jobs:
             DEPLOY_DIR="/services/finishline-backend"
 
             if [ ! -d "$DEPLOY_DIR/.git" ]; then
+              rm -rf "$DEPLOY_DIR"
               git clone git@github-backend:Nenavsegda/finishline-backend.git "$DEPLOY_DIR"
             else
               cd "$DEPLOY_DIR" && git pull origin main
