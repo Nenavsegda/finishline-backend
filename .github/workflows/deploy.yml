@@ -1,0 +1,41 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        run: |
+          echo "${{ secrets.EC2_DEPLOY_KEY }}" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+
+          ssh -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            claude@${{ secrets.EC2_HOST }} << 'ENDSSH'
+
+            set -e
+            DEPLOY_DIR="/services/finishline-backend"
+
+            if [ ! -d "$DEPLOY_DIR/.git" ]; then
+              git clone git@github-backend:Nenavsegda/finishline-backend.git "$DEPLOY_DIR"
+            else
+              cd "$DEPLOY_DIR" && git pull origin main
+            fi
+
+            cd "$DEPLOY_DIR"
+            docker compose -f docker-compose.prod.yml up -d --build
+            docker image prune -f
+
+            # Redirect logs to /var/log/services
+            docker logs -f finishline-backend >> /var/log/services/finishline-backend/app.log 2>&1 &
+
+          ENDSSH
+
+          rm -f /tmp/deploy_key
